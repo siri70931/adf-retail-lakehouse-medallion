@@ -1,0 +1,54 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "actedatafactory"
+		},
+		"ADLS_LS_accountKey": {
+			"value": ""
+		},
+		"Destination_Sql_LinkedService_password": {
+			"value": ""
+		},
+		"FileServer1_password": {
+			"value": ""
+		},
+		"Source_sql_LinkedService_password": {
+			"value": ""
+		},
+		"ADLS_LS_properties_typeProperties_url": {
+			"value": "https://actestoragegroup.dfs.core.windows.net/"
+		},
+		"Destination_Sql_LinkedService_properties_typeProperties_server": {
+			"value": "actedbserver.database.windows.net"
+		},
+		"Destination_Sql_LinkedService_properties_typeProperties_database": {
+			"value": "actedb"
+		},
+		"Destination_Sql_LinkedService_properties_typeProperties_userName": {
+			"value": "Admin123"
+		},
+		"FileServer1_properties_typeProperties_host": {
+			"value": "C:\\Users\\pujig\\OneDrive\\Desktop\\ACTE\\Datasets"
+		},
+		"FileServer1_properties_typeProperties_userId": {
+			"value": "pujitha\\pujitha"
+		},
+		"Source_sql_LinkedService_properties_typeProperties_server": {
+			"value": "actedbserver.database.windows.net"
+		},
+		"Source_sql_LinkedService_properties_typeProperties_database": {
+			"value": "actedb"
+		},
+		"Source_sql_LinkedService_properties_typeProperties_userName": {
+			"value": "Admin123"
+		},
+		"containerUri": {
+			"value": ""
+		},
+		"containerSasToken": {
+			"value": ""
+		}
+	}
+}
