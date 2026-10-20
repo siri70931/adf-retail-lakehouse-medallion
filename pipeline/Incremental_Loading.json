@@ -1,0 +1,378 @@
+{
+	"name": "Incremental_Loading",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetMarkupValue",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": "SELECT\n    TableName,\n    SourceSchema,\n    SourceTable,\n    WatermarkColumn,\n    StageTable,\n    TargetTable,\n   PrimaryKeyColumn\nFROM dbo.ETL_TableConfig\nWHERE IsActive = 1;",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "sql_ds",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEachTable",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetMarkupValue",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetMarkupValue').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LookupValue",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "@concat(\n    'SELECT COALESCE(MAX(WatermarkValue), CAST(''1900-01-01'' AS DATETIME2)) AS WatermarkValue ',\n    'FROM dbo.ETL_Watermark ',\n    'WHERE TableName = ''',\n    item().TableName,\n    ''''\n)",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "Target_sql_dataset",
+									"type": "DatasetReference",
+									"parameters": {
+										"Schema_Name": {
+											"value": "@item().SourceSchema",
+											"type": "Expression"
+										},
+										"Table_Name": {
+											"value": "@item().SourceTable",
+											"type": "Expression"
+										}
+									}
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "LookupNewValue",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "LookupValue",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "@concat(\n    'SELECT MAX(LastModifiedDate) AS NewWatermark FROM ',\n    item().SourceSchema, '.', item().SourceTable\n)",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "Source_sql_dataset",
+									"type": "DatasetReference",
+									"parameters": {
+										"Schema_Name": {
+											"value": "@item().SourceSchema",
+											"type": "Expression"
+										},
+										"Table_Name": {
+											"value": "@item().SourceTable",
+											"type": "Expression"
+										}
+									}
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "IfNewData",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "LookupNewValue",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(\n    if(\n        empty(activity('LookupNewValue').output.value),\n        'false',\n        if(\n            equals(activity('LookupNewValue').output.value[0].NewWatermark, null),\n            'false',\n            if(\n                empty(activity('LookupValue').output.value),\n                'true',\n                if(\n                    equals(activity('LookupValue').output.value[0].WatermarkValue, null),\n                    'true',\n                    if(\n                        greater(\n                            ticks(activity('LookupNewValue').output.value[0].NewWatermark),\n                            ticks(activity('LookupValue').output.value[0].WatermarkValue)\n                        ),\n                        'true',\n                        'false'\n                    )\n                )\n            )\n        )\n    ),\n    'true'\n)\n",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "clear_stage",
+										"type": "Script",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "Destination_Sql_LinkedService",
+											"type": "LinkedServiceReference"
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "@concat(\n    'TRUNCATE TABLE dbo.',\n    item().StageTable\n)",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									},
+									{
+										"name": "Copy New data to stage",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "clear_stage",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"sqlReaderQuery": {
+													"value": "@concat(\n    'SELECT * FROM ',\n    item().SourceSchema, '.', item().SourceTable,\n    ' WHERE ', item().WatermarkColumn, ' > ''',\n    activity('LookupValue').output.value[0].WatermarkValue,\n    ''' AND ', item().WatermarkColumn, ' <= ''',\n    activity('LookupNewValue').output.value[0].NewWatermark,\n    ''''\n)\n",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "AzureSqlSink",
+												"writeBehavior": "insert",
+												"sqlWriterUseTableLock": false,
+												"disableMetricsCollection": false
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "Source_sql_dataset",
+												"type": "DatasetReference",
+												"parameters": {
+													"Schema_Name": {
+														"value": "@item().SourceSchema",
+														"type": "Expression"
+													},
+													"Table_Name": {
+														"value": "@item().SourceTable",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "Target_sql_dataset",
+												"type": "DatasetReference",
+												"parameters": {
+													"Schema_Name": "dbo",
+													"Table_Name": "@item().StageTable"
+												}
+											}
+										]
+									},
+									{
+										"name": "UpdateDtae",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "Copy data from stage to target",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[usp_UpdateWatermarkFromStage]",
+											"storedProcedureParameters": {
+												"TableName": {
+													"value": {
+														"value": "@item().TableName",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "Source_sql_LinkedService",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "Copy data from stage to target",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "Copy New data to stage",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "AzureSqlSink",
+												"writeBehavior": "upsert",
+												"upsertSettings": {
+													"useTempDB": true,
+													"keys": {
+														"value": "@array(item().PrimaryKeyColumn)",
+														"type": "Expression"
+													}
+												},
+												"sqlWriterUseTableLock": false,
+												"disableMetricsCollection": false
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "Source_sql_dataset",
+												"type": "DatasetReference",
+												"parameters": {
+													"Schema_Name": "dbo",
+													"Table_Name": {
+														"value": "@item().StageTable",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "Target_sql_dataset",
+												"type": "DatasetReference",
+												"parameters": {
+													"Schema_Name": {
+														"value": "@item().SourceSchema",
+														"type": "Expression"
+													},
+													"Table_Name": {
+														"value": "@item().TargetTable",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		],
+		"annotations": [],
+		"lastPublishTime": "2026-10-19T07:29:31Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

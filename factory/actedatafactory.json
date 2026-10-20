@@ -1,0 +1,15 @@
+{
+	"name": "actedatafactory",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "eastus",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "e08287c7-199f-46a5-b750-4729099a3bb2",
+		"tenantId": "0320fb70-a115-4f14-9fb5-b63e11251888"
+	}
+}
